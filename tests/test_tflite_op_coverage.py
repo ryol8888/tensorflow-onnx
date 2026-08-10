@@ -16,7 +16,8 @@ skipped in the normal test matrix so it can never block unrelated PRs.
 """
 
 import os
-import unittest
+
+import pytest
 
 # TFLite builtins that currently have NO ``@tfl_op`` handler. Emitting one of
 # these yields an invalid ``TFL_<NAME>`` passthrough node that no ONNX runtime
@@ -56,41 +57,35 @@ def _builtins_and_handled():
     return builtins, handled
 
 
-# unittest.skipUnless (not pytest.mark.skipif) so the guard is honored under both
-# runners -- `pytest` and a direct `python -m unittest` / `unittest.main()` via the
-# __main__ block below.
-@unittest.skipUnless(
-    os.environ.get("TF2ONNX_TFLITE_COVERAGE"),
-    "TFLite coverage guard runs only in its dedicated non-blocking CI job",
+# Runs only in the dedicated (non-blocking) CI job. A module-level skipif keeps the
+# file pytest-native -- the project standardizes on pytest, so there is no unittest
+# TestCase / __main__ runner to keep in sync.
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("TF2ONNX_TFLITE_COVERAGE"),
+    reason="TFLite coverage guard runs only in its dedicated non-blocking CI job",
 )
-class TFLiteOpCoverageTests(unittest.TestCase):
-
-    def test_no_new_unsupported_builtins(self):
-        # A builtin with no handler that we did not already know about: either a
-        # regressed handler or a newly added builtin.
-        builtins, handled = _builtins_and_handled()
-        new_gaps = (builtins - handled) - KNOWN_UNSUPPORTED
-        self.assertEqual(
-            set(), new_gaps,
-            "Unhandled TFLite builtin(s) not in KNOWN_UNSUPPORTED: %s. "
-            "Implement an @tfl_op handler, or add them to KNOWN_UNSUPPORTED if "
-            "leaving them unsupported is intentional." % sorted(new_gaps))
-
-    def test_allowlist_still_accurate(self):
-        builtins, handled = _builtins_and_handled()
-        # Someone added a handler but forgot to shrink the list.
-        now_supported = KNOWN_UNSUPPORTED & handled
-        self.assertEqual(
-            set(), now_supported,
-            "TFLite builtin(s) now have a handler; remove them from "
-            "KNOWN_UNSUPPORTED: %s" % sorted(now_supported))
-        # Guard against typos / renamed enum entries in the list.
-        stale = KNOWN_UNSUPPORTED - builtins
-        self.assertEqual(
-            set(), stale,
-            "KNOWN_UNSUPPORTED has name(s) not in BuiltinOperator "
-            "(typo or renamed op): %s" % sorted(stale))
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_no_new_unsupported_builtins():
+    # A builtin with no handler that we did not already know about: either a
+    # regressed handler or a newly added builtin.
+    builtins, handled = _builtins_and_handled()
+    new_gaps = (builtins - handled) - KNOWN_UNSUPPORTED
+    assert new_gaps == set(), (
+        "Unhandled TFLite builtin(s) not in KNOWN_UNSUPPORTED: %s. "
+        "Implement an @tfl_op handler, or add them to KNOWN_UNSUPPORTED if "
+        "leaving them unsupported is intentional." % sorted(new_gaps))
+
+
+def test_allowlist_still_accurate():
+    builtins, handled = _builtins_and_handled()
+    # Someone added a handler but forgot to shrink the list.
+    now_supported = KNOWN_UNSUPPORTED & handled
+    assert now_supported == set(), (
+        "TFLite builtin(s) now have a handler; remove them from "
+        "KNOWN_UNSUPPORTED: %s" % sorted(now_supported))
+    # Guard against typos / renamed enum entries in the list.
+    stale = KNOWN_UNSUPPORTED - builtins
+    assert stale == set(), (
+        "KNOWN_UNSUPPORTED has name(s) not in BuiltinOperator "
+        "(typo or renamed op): %s" % sorted(stale))
